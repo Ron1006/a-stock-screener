@@ -116,7 +116,6 @@ h1 { margin: 0 0 6px; font-size: 18px; }
 }
 
 .analysis {
-  white-space: pre-wrap;
   line-height: 1.55;
   color: #cfe1f1;
   font-size: 13px;
@@ -246,3 +245,42 @@ footer {
   .hide-sm { display: none; }
   .scan-panel table { font-size: 11px; }
 }
+
+/* ── Indicator tip icons ── */
+.tip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #1c2d40;
+  color: #6a96b8;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  vertical-align: middle;
+  margin-left: 3px;
+  border: 1px solid #2e4a65;
+  flex-shrink: 0;
+  user-select: none;
+}
+.tip-icon:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+#tip-popup {
+  position: fixed;
+  z-index: 9999;
+  max-width: 280px;
+  background: #141e2c;
+  border: 1px solid #2e4a65;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 12px;
+  color: #cfe1f1;
+  line-height: 1.7;
+  box-shadow: 0 6px 28px rgba(0,0,0,0.6);
+  display: none;
+  white-space: pre-wrap;
+  pointer-events: none;
+}
+#tip-popup.active { display: block; }

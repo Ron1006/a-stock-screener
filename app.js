@@ -267,9 +267,49 @@ function linearRegressionFull(xs, ys) {
   return { a, b, r2: ssTot > 1e-10 ? Math.max(0, 1 - ssRes / ssTot) : 0 };
 }
 
+// ── Indicator tooltip system ──
+const TIPS = {
+  kdj:   'KDJ（随机指标）\nK线 = 当前超买超卖强度\nD线 = K 的平滑均线（信号线）\nJ线 = 最灵敏，常提前预警\n\nK > D → 看多；K < D → 看空\nK / D < 20 = 超卖区\nK / D > 80 = 超买区',
+  macd:  'MACD（指数平滑异同移动平均）\nDIF（快线）= EMA12 − EMA26\nDEA（慢线）= DIF 的 9 日均线\n柱状图 = DIF − DEA\n\nDIF 上穿 DEA = 金叉（看多信号）\nDIF 下穿 DEA = 死叉（看空信号）',
+  rsi:   'RSI（相对强弱指数）\n衡量近 14 日涨跌力度的比值\n\n< 30 = 超卖，可能触底反弹\n> 70 = 超买，注意回调风险\n50 = 多空分界线',
+  mfi:   'MFI（资金流量指数）\n结合价格 × 成交量的"量版 RSI"\n反映资金净流入 / 流出强度\n\n< 20 = 资金大量净流出，超卖\n> 80 = 资金大量净流入，超买',
+  boll:  'BOLL 带宽\n= （上轨 − 下轨）/ 中轨\n布林带宽度的相对比例\n\n带宽收窄 → 波动萎缩，蓄势待变\n带宽扩大 → 趋势确立，波动加剧',
+  atr:   'ATR（平均真实波幅）\n近 14 日每日价格波动的平均幅度\n\n数值越大 = 波动越剧烈\n常用于设定止损距离和控制仓位',
+  stop:  '止损参考 = 当前价 − 2 × ATR\n基于正常波动幅度设定的机械止损线\n\n若价格跌破此位，说明下跌幅度\n已超出近期正常波动范围，\n趋势可能已发生反转',
+  pivot: '枢轴点（Pivot Point）系统\nP = （前日高 + 低 + 收）÷ 3\nP 是当日多空分界线\n\nR1 / R2 = 上方压力位（阻力）\nS1 / S2 = 下方支撑位\n\n「日内动态」：使用今日实时高低价\n计算，每次刷新自动更新',
+  pctb:  '%B（布林带相对位置）\n= （价格 − 下轨）÷（上轨 − 下轨）\n\n100% = 触及上轨（偏贵区）\n  0% = 触及下轨（偏廉区）\n 50% = 位于中轨附近\n负值 = 跌破下轨',
+  bias:  'BIAS（乖离率）\n= （当前价 − MA20）÷ MA20 × 100%\n当前价偏离 20 日均线的程度\n\n正乖离 > +10% → 有回调风险\n负乖离 < −10% → 有反弹可能',
+  pct52: '52 周价格百分位\n当前价在过去一年价格区间中的位置\n\n  0% = 接近年内最低价\n100% = 接近年内最高价\n 50% = 处于年内中间水平',
+  heat:  '量能热度 = 今日成交量 ÷ 近 20 日均量\n\n> 1.5x = 明显放量（关注方向）\n< 0.6x = 明显缩量（观望为主）\n价涨量增 = 健康上涨信号\n价涨量缩 = 需警惕虚涨',
+};
+const T = key => `<span class="tip-icon" data-tip="${key}">?</span>`;
+
+function initTipPopup() {
+  const popup = document.createElement('div');
+  popup.id = 'tip-popup';
+  document.body.appendChild(popup);
+  document.addEventListener('click', e => {
+    const icon = e.target.closest('.tip-icon');
+    if (icon) {
+      e.stopPropagation();
+      popup.textContent = TIPS[icon.dataset.tip] || '暂无说明';
+      popup.classList.add('active');
+      const rect = icon.getBoundingClientRect();
+      let left = rect.left, top = rect.bottom + 8;
+      if (left + 290 > window.innerWidth - 8)  left = window.innerWidth - 298;
+      if (top  + 220 > window.innerHeight - 8) top  = rect.top - 228;
+      if (left < 8) left = 8;
+      popup.style.left = left + 'px';
+      popup.style.top  = top  + 'px';
+    } else {
+      popup.classList.remove('active');
+    }
+  });
+}
+
 function analyzePlus(data) {
   if (!data || data.closes.length < 30)
-    return { score: 0, pct1: null, pct3: null, pct7: null, text: '样本不足', mood: 'neutral' };
+    return { score: 0, pct1: null, pct3: null, pct7: null, html: '样本不足', mood: 'neutral' };
 
   const { closes, volumes, highs, lows } = data;
   const last = closes.length - 1, C = closes[last];
@@ -353,28 +393,28 @@ function analyzePlus(data) {
     ? (boll.up[last] - boll.down[last]) / (boll.down[last] || 1)
     : null;
 
-  const text = [
+  const html = [
     `总体：${mood === 'bull' ? '偏多' : mood === 'bear' ? '偏空' : '震荡'}（${score}/8）`,
     `价位：C=${C.toFixed(2)}  MA20=${ma20[last]?.toFixed(2) ?? '-'}  MA60=${ma60[last]?.toFixed(2) ?? '-'}`,
-    `KDJ：K=${kdj.K[last]?.toFixed(1) ?? '-'}  D=${kdj.D[last]?.toFixed(1) ?? '-'}  J=${kdj.J[last]?.toFixed(1) ?? '-'}`,
-    `MACD：DIF=${macd.dif[last]?.toFixed(4) ?? '-'}  DEA=${macd.dea[last]?.toFixed(4) ?? '-'}  柱=${macd.hist[last] != null ? (macd.hist[last] > 0 ? '正' : '负') : '—'}`,
-    `RSI14：${rsi[last]?.toFixed(1) ?? '—'}  MFI14：${mfi[last]?.toFixed(1) ?? '—'}  OBV：${obv.up ? '上升' : '下降'}`,
-    `量能：${volNote}（vs 20日均量）  BOLL带宽：${bw ? (bw * 100).toFixed(1) + '%' : '—'}  ATR14：${atrNow.toFixed(2)}`,
-    `支撑：${lvl.support?.toFixed(2) ?? '无'}  压力：${lvl.resistance?.toFixed(2) ?? '无'}  止损参考：${stopRef?.toFixed(2) ?? '—'}（2×ATR）`,
+    `KDJ：K=${kdj.K[last]?.toFixed(1) ?? '-'}  D=${kdj.D[last]?.toFixed(1) ?? '-'}  J=${kdj.J[last]?.toFixed(1) ?? '-'} ${T('kdj')}`,
+    `MACD：DIF=${macd.dif[last]?.toFixed(4) ?? '-'}  DEA=${macd.dea[last]?.toFixed(4) ?? '-'}  柱=${macd.hist[last] != null ? (macd.hist[last] > 0 ? '正' : '负') : '—'} ${T('macd')}`,
+    `RSI14：${rsi[last]?.toFixed(1) ?? '—'} ${T('rsi')}  MFI14：${mfi[last]?.toFixed(1) ?? '—'} ${T('mfi')}  OBV：${obv.up ? '上升' : '下降'}`,
+    `量能：${volNote}（vs 20日均量）  BOLL带宽：${bw ? (bw * 100).toFixed(1) + '%' : '—'} ${T('boll')}  ATR14：${atrNow.toFixed(2)} ${T('atr')}`,
+    `支撑：${lvl.support?.toFixed(2) ?? '无'}  压力：${lvl.resistance?.toFixed(2) ?? '无'}  止损参考：${stopRef?.toFixed(2) ?? '—'}（2×ATR）${T('stop')}`,
     ``,
     `【近期走势 15日】${trendQuality}`,
     `【波动区间 ATR模型】±N×ATR×√t，非价格预测`,
     `  +1日：${bear1.toFixed(1)}% ～ +${bull1.toFixed(1)}%`,
     `  +3日：${bear3.toFixed(1)}% ～ +${bull3.toFixed(1)}%`,
     `  +7日：${bear7.toFixed(1)}% ～ +${bull7.toFixed(1)}%`,
-  ].join('\n');
+  ].join('<br>');
 
   // Extra fields exposed for scan filtering
   const rsiLast  = rsi[last]  ?? 50;
   const kLast    = kdj.K[last] ?? 50;
   const bias20   = ma20[last] ? (C - ma20[last]) / ma20[last] * 100 : 0;
 
-  return { score, pct1, pct3, pct7, text, mood, rsiLast, kLast, bias20 };
+  return { score, pct1, pct3, pct7, html, mood, rsiLast, kLast, bias20 };
 }
 
 // ── Advanced indicators ──
@@ -485,7 +525,7 @@ function computeAdvanced(data, shIndex, basic = null) {
 
   const fmt = v => v == null || isNaN(v) ? '—' : v.toFixed(2) + '%';
   const lines = [
-    `枢轴点（${pivLabel}）：P=${P.toFixed(2)}  R1=${R1.toFixed(2)}  R2=${R2.toFixed(2)}  S1=${S1.toFixed(2)}  S2=${S2.toFixed(2)}`,
+    `枢轴点（${pivLabel}）：P=${P.toFixed(2)}  R1=${R1.toFixed(2)}  R2=${R2.toFixed(2)}  S1=${S1.toFixed(2)}  S2=${S2.toFixed(2)} ${T('pivot')}`,
     `当前位置：${posNote}`,
   ];
   if (confluences.length)
@@ -493,12 +533,12 @@ function computeAdvanced(data, shIndex, basic = null) {
 
   lines.push(
     `距离：距MA20 ${fmt((C - ma20[last]) / ma20[last] * 100)}  距MA60 ${fmt((C - ma60[last]) / ma60[last] * 100)}`,
-    `%B：${fmt(bPercent * 100)}  BIAS20：${fmt(bias20)}  52周百分位：${fmt(pct52)}`,
-    `ATR14：${atr[atr.length - 1]?.toFixed(2) ?? '—'}  量能热度：${heat ? heat.toFixed(2) + 'x' : '—'}`,
+    `%B：${fmt(bPercent * 100)} ${T('pctb')}  BIAS20：${fmt(bias20)} ${T('bias')}  52周百分位：${fmt(pct52)} ${T('pct52')}`,
+    `ATR14：${atr[atr.length - 1]?.toFixed(2) ?? '—'} ${T('atr')}  量能热度：${heat ? heat.toFixed(2) + 'x' : '—'} ${T('heat')}`,
     `缺口监测：${gapNote}`,
     `相对强弱（20日）：${rs20}`,
   );
-  return lines.join('\n');
+  return lines.join('<br>');
 }
 
 // ── Data builder ──
@@ -643,7 +683,7 @@ async function loadOne() {
       <div>今开/昨收</div><div>${basic.open ?? '-'} / ${basic.yclose ?? '-'}</div>`;
 
     const res = analyzePlus(data);
-    els.analysis.textContent = res.text;
+    els.analysis.innerHTML = res.html;
 
     if (!shIndexData) {
       try {
@@ -653,7 +693,7 @@ async function loadOne() {
         shIndexData = buildFromKArray(arr2);
       } catch { shIndexData = null; }
     }
-    els.advanced.textContent = computeAdvanced(data, shIndexData, basic);
+    els.advanced.innerHTML = computeAdvanced(data, shIndexData, basic);
 
     if (basic?.name) {
       pushHistory({ code: pref, name: basic.name, price: basic.price, chgPct: basic.chgPct, ts: Date.now() });
@@ -1103,5 +1143,6 @@ els.confluenceBtn.addEventListener('click', scanConfluence);
 els.clearHistoryBtn.addEventListener('click', () => { saveHistory([]); renderHistory(); });
 
 // ── Init ──
+initTipPopup();
 renderHistory();
 loadOne();
