@@ -399,33 +399,54 @@ function computeAdvanced(data, shIndex) {
   const R1 = 2 * P - pL,      S1 = 2 * P - pH;
   const R2 = P + (pH - pL),   S2 = P - (pH - pL);
 
-  // ── Current price position relative to pivot ──
+  // ── Pivot validity: fails when price has gapped far outside yesterday's range ──
+  //   Classic case: 涨停(+10%) pushes C above R2; 跌停 pushes C below S2.
+  //   In these cases the formula's assumption (price oscillates near yesterday's range)
+  //   breaks down — all levels are either all below or all above the current price.
+  const gapUpInvalid   = C > R2;   // blown above all resistance
+  const gapDownInvalid = C < S2;   // fallen below all support
+
+  // ── Current price position relative to pivot (only meaningful when valid) ──
   const aboveP  = C >= P;
-  const pctToP  = (C - P)  / P  * 100;
-  const pctToR1 = (R1 - C) / C  * 100;
-  const pctToS1 = (C - S1) / C  * 100;
-  const posNote = aboveP
-    ? `P 上方 +${pctToP.toFixed(1)}%，距压力 R1 还有 ${pctToR1.toFixed(1)}%`
-    : `P 下方 ${Math.abs(pctToP).toFixed(1)}%，距支撑 S1 还有 ${pctToS1.toFixed(1)}%`;
+  const pctToP  = (C - P) / P * 100;
+  const pctToR1 = (R1 - C) / C * 100;
+  const pctToS1 = (C - S1) / C * 100;
+  let posNote;
+  if (gapUpInvalid) {
+    // Stock is above R2 — pivot levels are all below, show meaningful alternative
+    const pctAboveR2 = (C - R2) / R2 * 100;
+    const prevClose  = pC;
+    posNote = `已突破全部压力位，高于 R2 达 +${pctAboveR2.toFixed(1)}%（昨收 ${prevClose.toFixed(2)} 可作近期回调支撑参考）`;
+  } else if (gapDownInvalid) {
+    const pctBelowS2 = (S2 - C) / S2 * 100;
+    const prevClose  = pC;
+    posNote = `已跌破全部支撑位，低于 S2 达 ${pctBelowS2.toFixed(1)}%（昨收 ${prevClose.toFixed(2)} 可作反弹压力参考）`;
+  } else {
+    posNote = aboveP
+      ? `P 上方 +${pctToP.toFixed(1)}%，距压力 R1 还有 ${pctToR1.toFixed(1)}%`
+      : `P 下方 ${Math.abs(pctToP).toFixed(1)}%，距支撑 S1 还有 ${pctToS1.toFixed(1)}%`;
+  }
 
   // ── Confluence: check if any pivot level is near MA / BOLL bands ──
-  // "Near" = within 0.8% of each other → double-layer key zone
+  // Only compute when pivot is valid — when it's not, confluence is also meaningless
   const NEAR = 0.008;
   const isNear = (a, b) => b != null && Math.abs(a - b) / Math.max(Math.abs(b), 1e-9) < NEAR;
   const refLevels = [
-    { val: ma20[last],       label: 'MA20'    },
-    { val: ma60[last],       label: 'MA60'    },
-    { val: boll.up[last],    label: 'BOLL上轨' },
-    { val: boll.mid[last],   label: 'BOLL中轨' },
-    { val: boll.down[last],  label: 'BOLL下轨' },
+    { val: ma20[last],      label: 'MA20'    },
+    { val: ma60[last],      label: 'MA60'    },
+    { val: boll.up[last],   label: 'BOLL上轨' },
+    { val: boll.mid[last],  label: 'BOLL中轨' },
+    { val: boll.down[last], label: 'BOLL下轨' },
   ];
   const confluences = [];
-  [{ name: 'R2', val: R2 }, { name: 'R1', val: R1 },
-   { name: 'P',  val: P  }, { name: 'S1', val: S1 }, { name: 'S2', val: S2 }]
-  .forEach(({ name, val }) => {
-    const hits = refLevels.filter(r => isNear(val, r.val)).map(r => r.label);
-    if (hits.length) confluences.push(`${name}≈${hits.join('/')}`);
-  });
+  if (!gapUpInvalid && !gapDownInvalid) {
+    [{ name: 'R2', val: R2 }, { name: 'R1', val: R1 },
+     { name: 'P',  val: P  }, { name: 'S1', val: S1 }, { name: 'S2', val: S2 }]
+    .forEach(({ name, val }) => {
+      const hits = refLevels.filter(r => isNear(val, r.val)).map(r => r.label);
+      if (hits.length) confluences.push(`${name}≈${hits.join('/')}`);
+    });
+  }
 
   // ── Gap detection ──
   let gapNote = '无';
@@ -447,12 +468,19 @@ function computeAdvanced(data, shIndex) {
   } catch {}
 
   const fmt = v => v == null || isNaN(v) ? '—' : v.toFixed(2) + '%';
-  const lines = [
-    `枢轴点：P=${P.toFixed(2)}  R1=${R1.toFixed(2)}  R2=${R2.toFixed(2)}  S1=${S1.toFixed(2)}  S2=${S2.toFixed(2)}`,
-    `当前位置：${posNote}`,
-  ];
-  if (confluences.length)
+  const pivotHeader = (gapUpInvalid || gapDownInvalid)
+    ? `枢轴点（今日失效）：P=${P.toFixed(2)}  R1=${R1.toFixed(2)}  R2=${R2.toFixed(2)}  S1=${S1.toFixed(2)}  S2=${S2.toFixed(2)}`
+    : `枢轴点：P=${P.toFixed(2)}  R1=${R1.toFixed(2)}  R2=${R2.toFixed(2)}  S1=${S1.toFixed(2)}  S2=${S2.toFixed(2)}`;
+
+  const lines = [ pivotHeader, `当前位置：${posNote}` ];
+
+  if (gapUpInvalid)
+    lines.push(`⚠ 枢轴失效原因：大幅跳空高开/涨停，今日价格已超出枢轴体系，请参考自动分析中的摆动支撑位`);
+  else if (gapDownInvalid)
+    lines.push(`⚠ 枢轴失效原因：大幅跳空低开/跌停，今日价格已跌出枢轴体系，请参考自动分析中的摆动压力位`);
+  else if (confluences.length)
     lines.push(`⚠ 双重关键位：${confluences.join('  ')}（枢轴与均线/BOLL重合，支撑/压力更强）`);
+
   lines.push(
     `距离：距MA20 ${fmt((C - ma20[last]) / ma20[last] * 100)}  距MA60 ${fmt((C - ma60[last]) / ma60[last] * 100)}`,
     `%B：${fmt(bPercent * 100)}  BIAS20：${fmt(bias20)}  52周百分位：${fmt(pct52)}`,
