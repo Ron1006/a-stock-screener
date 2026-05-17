@@ -952,19 +952,10 @@ $('code').addEventListener('keydown', e => { if (e.key === 'Enter') { e.target.b
 $('historyBtn').addEventListener('click', () => openModal('modalHistory'));
 $('clearHistoryBtn').addEventListener('click', () => { saveHistory([]); renderHistory(); });
 
-// Bottom nav — open modal + auto-start scan
-$('scanBtn').addEventListener('click', () => {
-  openModal('modalScan');
-  scanSH();
-});
-$('kdjBtn').addEventListener('click', () => {
-  openModal('modalKdj');
-  scanKDJ();
-});
-$('confluenceBtn').addEventListener('click', () => {
-  openModal('modalCf');
-  scanConfluence();
-});
+// Bottom nav — open modal only, results from last scan are preserved
+$('scanBtn').addEventListener('click', () => openModal('modalScan'));
+$('kdjBtn').addEventListener('click',  () => openModal('modalKdj'));
+$('confluenceBtn').addEventListener('click', () => openModal('modalCf'));
 
 // Re-scan buttons inside modals
 $('reScanBtn').addEventListener('click', scanSH);
