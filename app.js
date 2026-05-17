@@ -391,20 +391,52 @@ function computeAdvanced(data, shIndex) {
   const vol20 = volumes.slice(-20).reduce((s, v) => s + v, 0) / Math.min(20, volumes.length);
   const heat  = volumes[last] ? (volumes[last] / Math.max(1, vol20)) : null;
 
-  const H = highs[last], L = lows[last], PC = closes[last - 1] ?? closes[last];
-  const P = (H + L + PC) / 3;
-  const R1 = 2 * P - L, S1 = 2 * P - H, R2 = P + (H - L), S2 = P - (H - L);
+  // ── Pivot points: use PREVIOUS bar's H/L/C (standard formula) ──
+  const pH = highs[last - 1] ?? highs[last];
+  const pL = lows[last - 1]  ?? lows[last];
+  const pC = closes[last - 1] ?? closes[last];
+  const P  = (pH + pL + pC) / 3;
+  const R1 = 2 * P - pL,      S1 = 2 * P - pH;
+  const R2 = P + (pH - pL),   S2 = P - (pH - pL);
 
+  // ── Current price position relative to pivot ──
+  const aboveP  = C >= P;
+  const pctToP  = (C - P)  / P  * 100;
+  const pctToR1 = (R1 - C) / C  * 100;
+  const pctToS1 = (C - S1) / C  * 100;
+  const posNote = aboveP
+    ? `P 上方 +${pctToP.toFixed(1)}%，距压力 R1 还有 ${pctToR1.toFixed(1)}%`
+    : `P 下方 ${Math.abs(pctToP).toFixed(1)}%，距支撑 S1 还有 ${pctToS1.toFixed(1)}%`;
+
+  // ── Confluence: check if any pivot level is near MA / BOLL bands ──
+  // "Near" = within 0.8% of each other → double-layer key zone
+  const NEAR = 0.008;
+  const isNear = (a, b) => b != null && Math.abs(a - b) / Math.max(Math.abs(b), 1e-9) < NEAR;
+  const refLevels = [
+    { val: ma20[last],       label: 'MA20'    },
+    { val: ma60[last],       label: 'MA60'    },
+    { val: boll.up[last],    label: 'BOLL上轨' },
+    { val: boll.mid[last],   label: 'BOLL中轨' },
+    { val: boll.down[last],  label: 'BOLL下轨' },
+  ];
+  const confluences = [];
+  [{ name: 'R2', val: R2 }, { name: 'R1', val: R1 },
+   { name: 'P',  val: P  }, { name: 'S1', val: S1 }, { name: 'S2', val: S2 }]
+  .forEach(({ name, val }) => {
+    const hits = refLevels.filter(r => isNear(val, r.val)).map(r => r.label);
+    if (hits.length) confluences.push(`${name}≈${hits.join('/')}`);
+  });
+
+  // ── Gap detection ──
   let gapNote = '无';
   for (let i = Math.max(1, closes.length - 30); i < closes.length; i++) {
-    if (lows[i] > highs[i - 1]) {
+    if (lows[i] > highs[i - 1])
       gapNote = '向上缺口：' + (closes.slice(i + 1).some(c => c <= highs[i - 1]) ? '已回补' : '未回补');
-    }
-    if (highs[i] < lows[i - 1]) {
+    if (highs[i] < lows[i - 1])
       gapNote = '向下缺口：' + (closes.slice(i + 1).some(c => c >= lows[i - 1]) ? '已回补' : '未回补');
-    }
   }
 
+  // ── Relative strength vs SH index ──
   let rs20 = '—';
   try {
     if (shIndex?.closes?.length >= 21) {
@@ -415,14 +447,20 @@ function computeAdvanced(data, shIndex) {
   } catch {}
 
   const fmt = v => v == null || isNaN(v) ? '—' : v.toFixed(2) + '%';
-  return [
-    `关键位：P=${P.toFixed(2)}  R1=${R1.toFixed(2)}  S1=${S1.toFixed(2)}  R2=${R2.toFixed(2)}  S2=${S2.toFixed(2)}`,
+  const lines = [
+    `枢轴点：P=${P.toFixed(2)}  R1=${R1.toFixed(2)}  R2=${R2.toFixed(2)}  S1=${S1.toFixed(2)}  S2=${S2.toFixed(2)}`,
+    `当前位置：${posNote}`,
+  ];
+  if (confluences.length)
+    lines.push(`⚠ 双重关键位：${confluences.join('  ')}（枢轴与均线/BOLL重合，支撑/压力更强）`);
+  lines.push(
     `距离：距MA20 ${fmt((C - ma20[last]) / ma20[last] * 100)}  距MA60 ${fmt((C - ma60[last]) / ma60[last] * 100)}`,
     `%B：${fmt(bPercent * 100)}  BIAS20：${fmt(bias20)}  52周百分位：${fmt(pct52)}`,
     `ATR14：${atr[atr.length - 1]?.toFixed(2) ?? '—'}  量能热度：${heat ? heat.toFixed(2) + 'x' : '—'}`,
     `缺口监测：${gapNote}`,
     `相对强弱（20日）：${rs20}`,
-  ].join('\n');
+  );
+  return lines.join('\n');
 }
 
 // ── Data builder ──
